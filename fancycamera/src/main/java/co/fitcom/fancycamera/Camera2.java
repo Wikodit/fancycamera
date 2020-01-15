@@ -51,12 +51,24 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 
+import com.coremedia.iso.IsoFile;
+import com.coremedia.iso.boxes.Container;
+import com.coremedia.iso.boxes.TimeToSampleBox;
+import com.coremedia.iso.boxes.TrackBox;
+import com.googlecode.mp4parser.DataSource;
+import com.googlecode.mp4parser.FileDataSourceImpl;
+import com.googlecode.mp4parser.authoring.Movie;
+import com.googlecode.mp4parser.authoring.Mp4TrackImpl;
+import com.googlecode.mp4parser.authoring.builder.DefaultMp4Builder;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -825,6 +837,59 @@ class Camera2 extends CameraBase {
         }
     }
 
+    private void checkFile() {
+        /*
+         * This method handles the bug described in this thread :
+         * https://github.com/googlearchive/android-Camera2Video/issues/24
+         * https://androidwave.com/audio-video-out-of-sync-in-camera2-api-android/
+         */
+        try {
+            DataSource channel = new FileDataSourceImpl(getFile());
+            IsoFile isoFile = new IsoFile(channel);
+            List<TrackBox> trackBoxes = isoFile.getMovieBox().getBoxes(TrackBox.class);
+            boolean sampleError = false;
+            for (TrackBox trackBox : trackBoxes) {
+                TimeToSampleBox.Entry firstEntry = trackBox.getMediaBox().getMediaInformationBox().getSampleTableBox().getTimeToSampleBox().getEntries().get(0);
+
+                // Detect if first sample is a problem and fix it in isoFile
+                // This is a hack. The audio deltas are 1024 for my files, and video deltas about 3000
+                // 10000 seems sufficient since for 30 fps the normal delta is about 3000
+                if(firstEntry.getDelta() > 10000) {
+                    sampleError = true;
+                    firstEntry.setDelta(3000);
+                }
+            }
+
+            if(sampleError) {
+                // We begin with the creation of a new file
+                DateFormat df = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+
+                Date today = Calendar.getInstance().getTime();
+                if (getSaveToGallery() && hasStoragePermission()) {
+                    File cameraDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera");
+                    if (!cameraDir.exists()) {
+                        final boolean mkdirs = cameraDir.mkdirs();
+                    }
+                    setFile(new File(cameraDir, "VID_" + df.format(today) + ".mp4"));
+                } else {
+                    setFile(new File(mContext.getExternalFilesDir(null), "VID_" + df.format(today) + ".mp4"));
+                }
+
+                Movie movie = new Movie();
+                for (TrackBox trackBox : trackBoxes) {
+                    movie.addTrack(new Mp4TrackImpl(trackBox));
+                }
+                movie.setMatrix(isoFile.getMovieBox().getMovieHeaderBox().getMatrix());
+                Container out = new DefaultMp4Builder().build(movie);
+
+                FileChannel fc = new RandomAccessFile(getFile().getAbsolutePath(), "rw").getChannel();
+                out.writeContainer(fc);
+                fc.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     @Override
     void startRecording() {
@@ -1098,6 +1163,7 @@ class Camera2 extends CameraBase {
             }
 
             if (listener != null) {
+                checkFile();
                 listener.onVideoEvent(new VideoEvent(EventType.INFO, getFile(), VideoEvent.EventInfo.RECORDING_FINISHED.toString()));
             }
             setFile(null);
