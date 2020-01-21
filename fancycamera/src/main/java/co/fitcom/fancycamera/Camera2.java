@@ -478,9 +478,10 @@ class Camera2 extends CameraBase {
         }
 
         synchronized (lock) {
-            mMediaRecorder = new MediaRecorder();
-            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+            if (mMediaRecorder != null) {
+                mMediaRecorder.release();
+            }
+
             DateFormat df = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
             Date today = Calendar.getInstance().getTime();
             if (getSaveToGallery() && hasStoragePermission()) {
@@ -492,88 +493,35 @@ class Camera2 extends CameraBase {
             } else {
                 setFile(new File(mContext.getExternalFilesDir(null), "VID_" + df.format(today) + ".mp4"));
             }
+
             CamcorderProfile profile = getCamcorderProfile(FancyCamera.Quality.values()[quality]);
-            mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            mMediaRecorder.setVideoSize(videoSize.getWidth(), videoSize.getHeight());
+
+            
+            mMediaRecorder = new MediaRecorder();
+
+            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             mMediaRecorder.setAudioChannels(profile.audioChannels);
+            mMediaRecorder.setAudioEncodingBitRate(profile.audioBitRate);
 
-            if (mOrientation == null || mOrientation == FancyCamera.CameraOrientation.UNKNOWN) {
-                int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+            mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
 
-                int orientation = activity.getResources().getConfiguration().orientation;
+            mMediaRecorder.setOutputFormat(profile.fileFormat);
 
-                if (orientation == Configuration.ORIENTATION_PORTRAIT) {
-                    if (mSensorOrientation != null) {
-                        switch (mSensorOrientation) {
-                            case SENSOR_ORIENTATION_DEFAULT_DEGREES:
-                                mMediaRecorder.setOrientationHint(DEFAULT_ORIENTATIONS.get(rotation));
-                                break;
-                            case SENSOR_ORIENTATION_INVERSE_DEGREES:
-                                mMediaRecorder.setOrientationHint(INVERSE_ORIENTATIONS.get(rotation));
-                                break;
-                        }
-                    }
-                } else if (orientation == Configuration.ORIENTATION_LANDSCAPE && Surface.ROTATION_90 == rotation) {
-                    mMediaRecorder.setOrientationHint(0);
-                } else if (orientation == Configuration.ORIENTATION_LANDSCAPE && Surface.ROTATION_270 == rotation) {
-                    mMediaRecorder.setOrientationHint(0);
-                }
-            } else {
-                switch (mOrientation) {
-                    case PORTRAIT_UPSIDE_DOWN:
-                        mMediaRecorder.setOrientationHint(270);
-                        break;
-                    case LANDSCAPE_LEFT:
-                        mMediaRecorder.setOrientationHint(0);
-                        break;
-                    case LANDSCAPE_RIGHT:
-                        mMediaRecorder.setOrientationHint(180);
-                        break;
-                    default:
-                        mMediaRecorder.setOrientationHint(90);
-                        break;
-                }
-            }
-
-            boolean isHEVCSupported = !disableHEVC && android.os.Build.VERSION.SDK_INT >= 24;
-
-            // Use half bit rate for HEVC
-            int videoBitRate = isHEVCSupported ? profile.videoBitRate / 2 : profile.videoBitRate;
-            int maxVideoBitrate = profile.videoBitRate;
-            if (this.maxVideoBitrate > -1) {
-                maxVideoBitrate = this.maxVideoBitrate;
-            }
-            int maxVideoFrameRate = profile.videoFrameRate;
-            if (this.maxVideoFrameRate > -1) {
-                maxVideoFrameRate = this.maxVideoFrameRate;
-            }
-            int maxAudioBitRate = profile.audioBitRate;
-            if (this.maxAudioBitRate > -1) {
-                maxAudioBitRate = this.maxAudioBitRate;
-            }
-
-            mMediaRecorder.setVideoFrameRate(Math.min(profile.videoFrameRate, maxVideoFrameRate));
-            mMediaRecorder.setVideoEncodingBitRate(Math.min(videoBitRate, maxVideoBitrate));
-            mMediaRecorder.setAudioEncodingBitRate(Math.min(profile.audioBitRate, maxAudioBitRate));
-
-            if (isHEVCSupported) {
-                int h265 = Camera2.getIntFieldIfExists(MediaRecorder.VideoEncoder.class,
-                        "HEVC", null, MediaRecorder.VideoEncoder.DEFAULT);
-                if (h265 == MediaRecorder.VideoEncoder.DEFAULT) {
-                    h265 = Camera2.getIntFieldIfExists(MediaRecorder.VideoEncoder.class,
-                            "H265", null, MediaRecorder.VideoEncoder.DEFAULT);
-                }
-                // Emulator seems to dislike H264/HEVC
-                if (isEmulator()) {
-                    mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-                } else {
-                    mMediaRecorder.setVideoEncoder(h265);
-                }
-            } else {
-                mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-            }
             mMediaRecorder.setAudioEncoder(profile.audioCodec);
+            mMediaRecorder.setVideoEncoder(profile.videoCodec);
+                
+            mMediaRecorder.setVideoEncodingBitRate(profile.videoBitRate);
+
+            mMediaRecorder.setAudioSamplingRate(profile.audioSampleRate);
+
+            mMediaRecorder.setVideoFrameRate(profile.videoFrameRate);
+            mMediaRecorder.setVideoSize(profile.videoFrameWidth, profile.videoFrameHeight);
+            
+
             mMediaRecorder.setOutputFile(getFile().getPath());
+
+            mMediaRecorder.setOrientationHint(getMediaOrientation());
+
             mMediaRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
                 @Override
                 public void onInfo(MediaRecorder mr, int what, int extra) {
@@ -618,6 +566,51 @@ class Camera2 extends CameraBase {
 
             mMediaRecorder.prepare();
         }
+    }
+
+    private int getMediaOrientation() {
+        Activity activity = (Activity) mContext;
+
+        int orientationInt = 0;
+        if (mOrientation == null || mOrientation == FancyCamera.CameraOrientation.UNKNOWN) {
+            int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+
+            int orientation = activity.getResources().getConfiguration().orientation;
+
+            if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+                if (mSensorOrientation != null) {
+                    switch (mSensorOrientation) {
+                        case SENSOR_ORIENTATION_DEFAULT_DEGREES:
+                            orientationInt = DEFAULT_ORIENTATIONS.get(rotation);
+                            break;
+                        case SENSOR_ORIENTATION_INVERSE_DEGREES:
+                            orientationInt = INVERSE_ORIENTATIONS.get(rotation);
+                            break;
+                    }
+                }
+            } else if (orientation == Configuration.ORIENTATION_LANDSCAPE && Surface.ROTATION_90 == rotation) {
+                orientationInt = 0;
+            } else if (orientation == Configuration.ORIENTATION_LANDSCAPE && Surface.ROTATION_270 == rotation) {
+                orientationInt = 0;
+            }
+        } else {
+            switch (mOrientation) {
+                case PORTRAIT_UPSIDE_DOWN:
+                    orientationInt = 270;
+                    break;
+                case LANDSCAPE_LEFT:
+                    orientationInt = 0;
+                    break;
+                case LANDSCAPE_RIGHT:
+                    orientationInt = 180;
+                    break;
+                default:
+                    orientationInt = 90;
+                    break;
+            }
+        }
+
+        return orientationInt;
     }
 
 
