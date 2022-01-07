@@ -837,7 +837,8 @@ class Camera2 extends CameraBase {
          * https://androidwave.com/audio-video-out-of-sync-in-camera2-api-android/
          */
         try {
-            DataSource channel = new FileDataSourceImpl(getFile());
+            File originalFile = getFile();
+            DataSource channel = new FileDataSourceImpl(originalFile);
             IsoFile isoFile = new IsoFile(channel);
             List<TrackBox> trackBoxes = isoFile.getMovieBox().getBoxes(TrackBox.class);
             boolean sampleError = false;
@@ -878,6 +879,7 @@ class Camera2 extends CameraBase {
                 FileChannel fc = new RandomAccessFile(getFile().getAbsolutePath(), "rw").getChannel();
                 out.writeContainer(fc);
                 fc.close();
+                originalFile.delete();
             }
         } catch (IOException e) {
             e.printStackTrace();
