@@ -1,3 +1,4 @@
+apply plugin: 'maven-publish'
 apply plugin: 'com.android.library'
 apply plugin: 'com.novoda.bintray-release'
 ext {
@@ -40,10 +41,31 @@ dependencies {
 
 
 publish {
-    userOrg = 'triniwiz'
+    userOrg = 'Wikodit'
     groupId = 'co.fitcom'
     artifactId = 'fancycamera'
     publishVersion = '1.2.2-wik.3'
     desc = ''
     website = ''
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/Wikodit/fancycamera")
+            credentials {
+                username = System.getenv("USERNAME")
+                password = System.getenv("PASSWORD")
+            }
+        }
+    }
+    publications {
+        bar(MavenPublication) {
+            groupId 'co.fitcom' // Replace with group ID
+            artifactId "fancycamera"
+            version '1.2.2-wik.3'
+            artifact("$buildDir/outputs/aar/fancycamera-release.aar")
+        }    
+    }
 }

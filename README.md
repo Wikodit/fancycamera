@@ -15,6 +15,17 @@
 compile 'co.fitcom:fancycamera:0.0.1'
 ```
 
+## Publish
+
+1. Change package version in `build.gradle` (there is 3 changes)
+2. Compile with `./gradlew build`
+2. Be sure you have two env variable :
+```
+export USERNAME=<github-username>
+export PASSWORD=<github-token>
+```
+3. Publish with `./gradlew publish`
+
 ## Usage
 
 ```xml
